@@ -13,19 +13,23 @@ android_branches = [ 'android-1.6_r2', 'android-2.1_r2.1s', 'android-2.2.3_r2.1'
 android_name = [ 'donut', 'eclair', 'froyo', 'gingerbread', 'icecream-sandwidth', 'jellybean 4.1', 'jellybean 4.2' ]
 
 cloc_columns = [ 'files', 'language', 'blank', 'comment', 'code' ]
+cloc_columns_minus_lang = list(cloc_columns)
+cloc_columns_minus_lang.remove('language')
 
 classification = [ 'native', 'build_and_tools', 'framework', 'apps', 'dev' ]
 
 file_types = [ 'java', 'native', 'build_scripts', 'xml' ]
 
-
-def CreateDirectory( path ):
-   shutil.rmtree(path, True )
-   os.makedirs(path)
-
+#classification for the top level directories
+native = [ 'abi', 'bionic', 'external', 'bootable', 'hardware', 'system' ]
+build_and_tools = [ 'build', 'device', 'prebuilt', 'prebuilts', 'vendor' ]
+framework = [ 'development', 'dalvik', 'frameworks', 'libcore', 'libnativehelper' ]
+apps = [ 'packages' ]
+dev = [ 'cts', 'ndk', 'pdk', 'gdk', 'docs', 'sdk' ]
 
 def CheckoutRepo( path, branch ):
-   CreateDirectory( path )
+   shutil.rmtree(path, True )
+   os.makedirs(path)
    
    os.chdir(path)
 
@@ -87,39 +91,43 @@ def CountLinesOfCode( path, branch, high_level_dirs ):
    out = {}
 
    for d in high_level_dirs:
-      tmpfile = path + "/" + d + ".txt"
-      cmd = "cloc " + branch + "/" + d + " --quiet --csv --progress-rate=0 --force-lang=\"make\",mk --report-file=" + tmpfile
-      #print cmd
-      
-      if not os.path.exists( tmpfile ):
-         os.system( cmd )
+      if d == "out":
+         continue
 
-      o = {}
-      if os.path.exists( tmpfile ):
-         o = ParseClocResults( tmpfile )
-      out[d] = o
+      dir = path + "/" + d
+      tmpfile = dir + ".txt"
+      cmd = "cloc " + branch + "/" + d + " --quiet --csv --progress-rate=0 --force-lang=\"make\",mk --report-file=" + tmpfile
+      
+      #does the directory exist first?
+      if os.path.exists( dir ):
+         if not os.path.exists( tmpfile ):
+            #print cmd
+            os.system( cmd )
+
+         o = {}
+         if os.path.exists( tmpfile ):
+            o = ParseClocResults( tmpfile )
+         out[d] = o
+      #else:
+         #print "Directory doesn't exist: ", dir
 
    return out
 
 
 #output dict is a list of src files
-def ParseStats( dir_dict, output_dict ):
+def ParseStats( dir_dict, output_dict, stat_type ):
 
    if len(dir_dict) == 0:
       return
 
-   files = dir_dict['files']
    language = dir_dict['language']
-   blank = dir_dict['blank']
-   comment = dir_dict['comment']
-   code = dir_dict['code']
 
    java_l = [ 'Java' ] #'Javascript'
    native_l = [ 'C++', 'C/C++ Header', 'C', 'Assembly' ]
    build_scripts_l = [ 'Python', 'make', 'Bourne Shell', 'Bourne Again Shell' ]
    xml_l = [ 'XML' ]
 
-   d = files
+   d = dir_dict[ stat_type ]
 
    for c, l in enumerate(language):
       if l in java_l:
@@ -137,64 +145,64 @@ def ParseStats( dir_dict, output_dict ):
 def GenerateStats( branch_names, branch_stats ):
    out = {}
 
-   native = [ 'abi', 'bionic', 'external', 'bootable', 'hardware', 'system' ]
-   build_and_tools = [ 'build', 'device', 'prebuilts', 'vendor' ]
-   framework = [ 'development', 'dalvik', 'frameworks', 'libcore', 'libnativehelper' ]
-   apps = [ 'packages' ]
-   dev = [ 'cts', 'ndk', 'pdk', 'gdk', 'docs', 'sdk' ]
-
    for branch in branch_names:
+      branch_summary = {}
       branch_dir_stats = branch_stats[branch]
 
-      native_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
-      build_and_tools_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
-      framework_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
-      apps_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
-      dev_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
+      for type in cloc_columns_minus_lang:
 
-      for dir in branch_dir_stats:
-         if dir in native:
-            ParseStats( branch_dir_stats[dir], native_d )
-         elif dir in build_and_tools:
-            ParseStats( branch_dir_stats[dir], build_and_tools_d )
-         elif dir in framework:
-            ParseStats( branch_dir_stats[dir], framework_d )
-         elif dir in apps:
-            ParseStats( branch_dir_stats[dir], apps_d )
-         elif dir in dev:
-            ParseStats( branch_dir_stats[dir], dev_d )
+         native_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
+         build_and_tools_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
+         framework_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
+         apps_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
+         dev_d = {'java': 0, 'native': 0, 'build_scripts': 0, 'xml': 0}
 
-      stats = {}
-      stats['native'] = native_d
-      stats['build_and_tools'] = build_and_tools_d
-      stats['framework'] = framework_d
-      stats['apps'] = apps_d
-      stats['dev'] = dev_d
+         for dir in branch_dir_stats:
+            if dir in native:
+               ParseStats( branch_dir_stats[dir], native_d, type )
+            elif dir in build_and_tools:
+               ParseStats( branch_dir_stats[dir], build_and_tools_d, type )
+            elif dir in framework:
+               ParseStats( branch_dir_stats[dir], framework_d, type )
+            elif dir in apps:
+               ParseStats( branch_dir_stats[dir], apps_d, type )
+            elif dir in dev:
+               ParseStats( branch_dir_stats[dir], dev_d, type )
 
-      out[branch] = stats
+         stats = {}
+         stats['native'] = native_d
+         stats['build_and_tools'] = build_and_tools_d
+         stats['framework'] = framework_d
+         stats['apps'] = apps_d
+         stats['dev'] = dev_d
+
+         #print branch, type, stats
+
+         branch_summary[type] = stats
+
+      out[branch] = branch_summary
 
    return out
 
 
-def CalcNumFiles( stats ):
+def CalcNum( stats, type ):
 
    branch_summary = {}
 
    for branch in stats:
       branch_summary[branch] = 0
       bstats = stats[branch] #actual stats for this branch
+
+      type_stats = bstats[type]
+
       for c in classification: #iterate over the branch stats, per coarse grouping
-         tmp = bstats[c]
-         print branch, c, tmp       
+         tmp = type_stats[c]
          if len(tmp) > 0:
             for f in file_types:
                branch_summary[branch] = branch_summary[branch] + tmp[f]
 
    return branch_summary
 
-
-def CalcNumLinesCode( stats ):
-   print "a"
 
 
 ##################
@@ -219,6 +227,7 @@ def main():
    last_branch_path = initial_path + "/" + android_branches[-1]
    high_level_dirs = HighLevelDirs( last_branch_path )
    high_level_dirs.append('vendor')
+   high_level_dirs.append('prebuilt')
 
    #get all the lines of code from each branch
    branch_stats = {}
@@ -227,13 +236,20 @@ def main():
       os.chdir( initial_path )
       branch_stats[ branch ] = CountLinesOfCode( branch_path, branch, high_level_dirs )
 
+   #branch_stats is a dict of dicts, as follows
+   #key  [ Android branch ]
+   #value[      key  [ Directory in the Android tree ] ]
+   #            value[       key  [ column from cloc - files, code etc... ] ]
+   #                         value[ list() of counts, keyed from 'language' column ]
+
    #generate the stats
    processed_stats = GenerateStats( android_branches, branch_stats )
 
    #stats calc
-   print CalcNumFiles( processed_stats )
-   #CalcNumLinesCode( processed_stats )
-   #CalcNativeVSJava( processed_stats )
+   for c in cloc_columns_minus_lang:
+      print "Type: ", c
+      print CalcNum( processed_stats, c )
+
 
 #usual python main thing
 if __name__ == "__main__":
