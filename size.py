@@ -1,6 +1,7 @@
 import os, string, sys, shutil
 from subprocess import call
 import csv
+import collections
 
 #Function to check file counts per directory
 #
@@ -12,10 +13,16 @@ import csv
 android_branches = [ 'android-1.6_r2', 'android-2.1_r2.1s', 'android-2.2.3_r2.1', 'android-2.3.7_r1', 'android-4.0.4_r2.1', 'android-4.1.2_r1', 'android-4.2.2_r1' ]
 android_name = [ 'donut', 'eclair', 'froyo', 'gingerbread', 'icecream-sandwidth', 'jellybean 4.1', 'jellybean 4.2' ]
 
+#CLOC
 cloc_columns = [ 'files', 'language', 'blank', 'comment', 'code' ]
+
 cloc_columns_minus_lang = list(cloc_columns)
 cloc_columns_minus_lang.remove('language')
 
+cloc_columns_minus_lang_files = list(cloc_columns_minus_lang)
+cloc_columns_minus_lang_files.remove('files')
+
+#My types
 classification = [ 'native', 'build_and_tools', 'framework', 'apps', 'dev' ]
 
 file_types = [ 'java', 'native', 'build_scripts', 'xml' ]
@@ -142,10 +149,10 @@ def ParseStats( dir_dict, output_dict, stat_type ):
 
 #Generate statistics per branch
 #Outputs coarse data for 5 catagories, code/comments/num files
-def GenerateStats( branch_names, branch_stats ):
+def ClassifyStats( branch_stats ):
    out = {}
 
-   for branch in branch_names:
+   for branch in branch_stats:
       branch_summary = {}
       branch_dir_stats = branch_stats[branch]
 
@@ -185,25 +192,68 @@ def GenerateStats( branch_names, branch_stats ):
    return out
 
 
-def CalcNum( stats, type ):
+##################
+## Calculate summary stats for all classifications of files
+#key  [ Directory in the Android tree ] ]
+#value[       key  [ column from cloc - files, code etc... ] ]
+#             value[ list() of counts, keyed from 'language' column ]
+#################
+def CalcSummaryByType( stats, type ):
 
    branch_summary = {}
+   count = 0
 
+   for d in stats:
+      branch_summary[d] = 0
+      cloc_col = stats[d] #actual stats for this branch
+
+      cloc_list = cloc_col[type]
+
+      for c in cloc_list:
+         count = count + int(c)
+
+   return count
+
+
+def PrintSummaryOfDirs( dirs ):
+   for d in dirs:
+      count = 0
+      cloc_col = dirs[d]
+      for c in cloc_columns_minus_lang_files:
+         for l in cloc_col[c]:
+            count = count + int(l)
+      print d + "," + str(count)
+
+
+def PrintSummaryOfFilesBlankCommentCode( branch_stats ):
+   print ",Files,Code,Blank,Comments"
+   for b in branch_stats:
+      files_stats = CalcSummaryByType( branch_stats[b], "files" )
+      blank_stats = CalcSummaryByType( branch_stats[b], "blank" )
+      comment_stats = CalcSummaryByType( branch_stats[b], "comment" )
+      code_stats = CalcSummaryByType( branch_stats[b], "code" )
+      print b + "," + str(files_stats) + "," + str(blank_stats) + "," + str(comment_stats) + "," + str(code_stats)
+
+   #classified_stats is a dict of dicts, as follows
+   #key  [ Android branch ]
+   #value[      key  [ Stats type - files, blank, comment, code ] ]
+   #            value[              key  [ Classification - native, build_and_tools, framework, apps, dev ]
+   #                                value[              key  [ file types - xml, build_scripts, java, native ] ]
+   #                                                    value[ count ]
+def PrintClassifiedStats( stats ):
+   print "/nClassified statistics\n"
+   print ",native,build_and_tools,framework,apps,dev"
    for branch in stats:
-      branch_summary[branch] = 0
-      bstats = stats[branch] #actual stats for this branch
-
-      type_stats = bstats[type]
-
-      for c in classification: #iterate over the branch stats, per coarse grouping
-         tmp = type_stats[c]
-         if len(tmp) > 0:
-            for f in file_types:
-               branch_summary[branch] = branch_summary[branch] + tmp[f]
-
-   return branch_summary
-
-
+      stats_type = stats[branch]      
+      stats_code = stats_type['code']
+      print branch,
+      count = 0
+      for classification in stats_code:
+         file_types = stats_code[ classification ]
+         for f in file_types:
+            count = count + int(file_types[f])
+         print ",", count,
+      print ""
 
 ##################
 ## Main
@@ -216,7 +266,6 @@ def main():
    #checkout the branches only if they don't exist already
    for branch in android_branches:
       branch_path = initial_path + "/" + branch
-      print branch_path
 
       if not os.path.exists( branch_path ):
          print "Branch does not exist - creating"
@@ -230,7 +279,7 @@ def main():
    high_level_dirs.append('prebuilt')
 
    #get all the lines of code from each branch
-   branch_stats = {}
+   branch_stats = collections.OrderedDict()
    for branch in android_branches:
       branch_path = initial_path + "/" + branch
       os.chdir( initial_path )
@@ -242,13 +291,28 @@ def main():
    #            value[       key  [ column from cloc - files, code etc... ] ]
    #                         value[ list() of counts, keyed from 'language' column ]
 
-   #generate the stats
-   processed_stats = GenerateStats( android_branches, branch_stats )
+   #print a little table summary of the 4 sections
+   print "Summary of high level projects for all directories\n"
+   PrintSummaryOfFilesBlankCommentCode( branch_stats )
 
-   #stats calc
-   for c in cloc_columns_minus_lang:
-      print "Type: ", c
-      print CalcNum( processed_stats, c )
+   #directory summary, currently per branch
+   print("android-4.2.2_r1:\n")
+   PrintSummaryOfDirs( branch_stats[ 'android-4.2.2_r1' ] )
+
+   print("android-4.1.2_r1:\n")
+   PrintSummaryOfDirs( branch_stats[ 'android-4.1.2_r1' ] )
+
+   #classify the statistics into high level groups, ignoring
+   classified_stats = ClassifyStats( branch_stats )
+
+   #classified_stats is a dict of dicts, as follows
+   #key  [ Android branch ]
+   #value[      key  [ Stats type - files, blank, comment, code ] ]
+   #            value[              key  [ Classification - native, build_and_tools, framework, apps, dev ]
+   #                                value[              key  [ file types - xml, build_scripts, java, native ] ]
+   #                                                    value[ count ]
+
+   PrintClassifiedStats( classified_stats )
 
 
 #usual python main thing
